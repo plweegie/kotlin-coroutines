@@ -89,6 +89,11 @@ class PlantRepository private constructor(
 
     fun getPlantsWithGrowZoneFlow(growZone: GrowZone): Flow<List<Plant>> =
         plantDao.getPlantsWithGrowZoneNumberFlow(growZone.number)
+            .map { plantList ->
+                val sortOrderFromNetwork = plantsListSortOrderCache.getOrAwait()
+                val nextValue = plantList.applyMainSafeSort(sortOrderFromNetwork)
+                nextValue
+            }
 
     /**
      * Returns true if we should make a network request.
