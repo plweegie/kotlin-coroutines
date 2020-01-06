@@ -17,11 +17,8 @@
 package com.example.android.advancedcoroutines
 
 import androidx.lifecycle.*
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.ConflatedBroadcastChannel
-import kotlinx.coroutines.flow.asFlow
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.*
 
 /**
  * The [ViewModel] for fetching a list of [Plant]s.
@@ -84,7 +81,13 @@ class PlantListViewModel internal constructor(
         // When creating a new ViewModel, clear the grow zone and perform any related udpates
         clearGrowZoneNumber()
 
-        launchDataLoad { plantRepository.tryUpdateRecentPlantsCache() }
+        loadDataFor(growZoneChannel) { growZone ->
+            if (growZone == NoGrowZone) {
+                plantRepository.tryUpdateRecentPlantsCache()
+            } else {
+                plantRepository.tryUpdateRecentPlantsForGrowZoneCache(growZone)
+            }
+        }
     }
 
     /**
@@ -97,9 +100,9 @@ class PlantListViewModel internal constructor(
         growZone.value = GrowZone(num)
         growZoneChannel.offer(GrowZone(num))
 
-        launchDataLoad {
-            plantRepository.tryUpdateRecentPlantsForGrowZoneCache(GrowZone(num))
-        }
+//        launchDataLoad {
+//            plantRepository.tryUpdateRecentPlantsForGrowZoneCache(GrowZone(num))
+//        }
     }
 
     /**
@@ -112,7 +115,7 @@ class PlantListViewModel internal constructor(
         growZone.value = NoGrowZone
         growZoneChannel.offer(NoGrowZone)
         
-        launchDataLoad { plantRepository.tryUpdateRecentPlantsCache() }
+//        launchDataLoad { plantRepository.tryUpdateRecentPlantsCache() }
     }
 
     /**
@@ -127,27 +130,14 @@ class PlantListViewModel internal constructor(
         _snackbar.value = null
     }
 
-    /**
-     * Helper function to call a data load function with a loading spinner; errors will trigger a
-     * snackbar.
-     *
-     * By marking [block] as [suspend] this creates a suspend lambda which can call suspend
-     * functions.
-     *
-     * @param block lambda to actually load data. It is called in the viewModelScope. Before calling
-     *              the lambda, the loading spinner will display. After completion or error, the
-     *              loading spinner will stop.
-     */
-    private fun launchDataLoad(block: suspend () -> Unit): Job {
-        return viewModelScope.launch {
-            try {
+    private fun <T> loadDataFor(source: ConflatedBroadcastChannel<T>, block: suspend (T) -> Unit) {
+        source.asFlow()
+            .mapLatest {
                 _spinner.value = true
-                block()
-            } catch (error: Throwable) {
-                _snackbar.value = error.message
-            } finally {
-                _spinner.value = false
+                block(it)
             }
-        }
+            .onCompletion { _spinner.value = false }
+            .catch { _snackbar.value = it.message }
+            .launchIn(viewModelScope)
     }
 }
