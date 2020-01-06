@@ -25,7 +25,7 @@ import com.example.android.advancedcoroutines.util.CacheOnSuccess
 import com.example.android.advancedcoroutines.utils.ComparablePair
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
 
 /**
@@ -49,13 +49,20 @@ class PlantRepository private constructor(
         emitSource(plantsLiveData.map { it.applySort(customSortOrder) })
     }
 
-    val plantsFlow: Flow<List<Plant>>
-        get() = plantDao.getPlantsFlow()
-
     private var plantsListSortOrderCache =
         CacheOnSuccess(onErrorFallback = { listOf<String>()} ) {
             plantService.customPlantSortOrder()
         }
+
+    private val customSortFlow: Flow<List<String>> = plantsListSortOrderCache::getOrAwait.asFlow()
+
+    val plantsFlow: Flow<List<Plant>>
+        get() = plantDao.getPlantsFlow()
+            .combine(customSortFlow) { plants, sortOrder ->
+                plants.applySort(sortOrder)
+            }
+            .flowOn(defaultDispatcher)
+            .conflate()
 
     private fun List<Plant>.applySort(customSortOrder: List<String>): List<Plant> =
         sortedBy { plant ->
